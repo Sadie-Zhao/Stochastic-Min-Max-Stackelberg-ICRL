@@ -5,7 +5,6 @@ Code repository for paper "Stochastic Stackelberg Games as a Tractable Framework
 # Requirements
 
 ## Programming Languages
-- R version 3.6 and above 
 - Python 3.7
 
 ## Python Libraries
