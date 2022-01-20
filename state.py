@@ -1,23 +1,25 @@
 import numpy as np
 import stochsticLibrary as lib
 class State:
-    def __init__(self, index, num_goods, num_buyers, valuations, budgets, supplies, utility_type):
+    def __init__(self, index, num_buyers, num_goods, valuations, budgets, supplies, utility_type):
         self.index = index
-        self.num_goods = num_goods
-        self.num_buyers = num_goods
         self.num_buyers = num_buyers
+        self.num_goods = num_goods
         self.valuations = valuations
         self.budgets = budgets
         self.supplies = supplies
         self.utility_type = utility_type
         if utility_type == "linear":
-            # self.util_func = lib.get_linear_utility
+            self.util_func = lib.get_linear_utility
+            self.util_gradient_func = lib.get_linear_util_gradient
             self.reward_func = lib.get_linear_obj
         elif utility_type == "leontief":
-            # self.util_func = lib.get_leontief_utility
+            self.util_func = lib.get_leontief_utility
+            self.util_gradient_func = lib.get_leontief_util_gradient
             self.reward_func = lib.get_leontief_obj
-        elif  utility_type == "cd":
-            # self.util_func = lib.get_cd_utility
+        elif utility_type == "cd":
+            self.util_func = lib.get_cd_utility
+            self.util_gradient_func = lib.get_cd_util_gradient
             self.reward_func = lib.get_cd_obj
 
     # Input the prices and demands

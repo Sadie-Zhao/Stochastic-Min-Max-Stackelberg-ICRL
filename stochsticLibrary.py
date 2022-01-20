@@ -151,3 +151,8 @@ def get_average_value_dynamic(value_func, prices_hist, demands_hist, budgets_his
         value = value_func(p, x, budgets, valuations)
         value_avg_hist.append(value)
     return value_avg_hist
+
+
+
+def normalize_vector(vector):
+    return (vector / np.sum(vector).clip(0.01))
