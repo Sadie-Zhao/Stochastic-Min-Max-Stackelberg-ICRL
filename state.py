@@ -10,14 +10,17 @@ class State:
         self.supplies = supplies
         self.utility_type = utility_type
         if utility_type == "linear":
+            self.obj_func = lib.get_linear_obj
             self.util_func = lib.get_linear_utility
             self.util_gradient_func = lib.get_linear_util_gradient
             self.reward_func = lib.get_linear_obj
         elif utility_type == "leontief":
+            self.obj_func = lib.get_leontief_obj
             self.util_func = lib.get_leontief_utility
             self.util_gradient_func = lib.get_leontief_util_gradient
             self.reward_func = lib.get_leontief_obj
         elif utility_type == "cd":
+            self.obj_func = lib.get_cd_obj
             self.util_func = lib.get_cd_utility
             self.util_gradient_func = lib.get_cd_util_gradient
             self.reward_func = lib.get_cd_obj
