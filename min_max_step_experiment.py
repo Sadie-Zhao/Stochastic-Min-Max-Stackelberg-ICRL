@@ -15,7 +15,7 @@ import math
 
 num_goods = 3
 num_buyers = 2
-num_states = 10
+num_states = 5
 discount = 0.01
 states = alg.create_states(num_buyers, num_goods, num_states, "linear", 10, 10, 100, 0, 10, 10)
 current_state = states[0]

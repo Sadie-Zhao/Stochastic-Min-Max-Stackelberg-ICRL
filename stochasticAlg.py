@@ -64,7 +64,7 @@ def project_to_bugdet_set(X, p, b):
         X -= ((X @ p - b).clip(min= 0)/(np.linalg.norm(p)**2).clip(min= 0.01) * np.tile(p, reps = (b.shape[0], 1)).T).T
         X = X.clip(min = 0)
         # if(np.linalg.norm(X - X_prec) <= np.sum(X_prec)*0.05):
-        if(np.linalg.norm(X - X_prec) <=0.0002):
+        if(np.linalg.norm(X - X_prec) <=0.0005):
             break
         # print(f"Current iterate {X}\nPrevious Iterate {X_prec}")
         X_prec = X
@@ -183,7 +183,7 @@ def value_iteration_dependent(discount, states, initial_distribution, max_iters,
         # Update the values & expected returns
         v_history.append(v)
         exp_return_history.append(get_exp_return(v, initial_distribution))
-        v = Tv
+        v = (1 - discount) * Tv
         # If diff smaller than threshold delta for all states, algorithm terminates
         if max_diff < epsilon:
             v_history.append(Tv)
@@ -233,7 +233,9 @@ def min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_ite
         # Calculate lagrangian part
         p_langrangian_part = np.sum( [lambdas[i] * demands[i] for i in range(num_buyers)] )
         # Update prices
-        prices = (prices - learning_rates[0] * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+        # prices = (prices - learning_rates[0] * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+        prices = (prices - learning_rates[0] * outer_iter**(-1/2) * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+
 
         for inner_iter in range(1, max_iter_demands):
             ###### DEMANDS STEP ######
@@ -255,15 +257,15 @@ def min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_ite
                 # Calculate langrangian part
                 X_langrangian_part = lambdas[row] * prices
                 # Update x_i
-                # new_demands[row] = (demands[row] + learning_rates[1] * inner_iter**(-1/2) * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
-                demands[row] = (demands[row] + learning_rates[1] * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
-
+                demands[row] = (demands[row] + learning_rates[1] * inner_iter**(-1/2) * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
+                # demands[row] = (demands[row] + learning_rates[1] * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
+                new_demands = project_to_bugdet_set(demands, prices, current_state.budgets)
+                check_market(prices, demands, new_demands, current_state.budgets, current_state.supplies, current_state.valuations)
+                demands = new_demands
             ###### LAMBDA STEP ######
-            lambdas = ( lambdas - learning_rates[2] * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
-            # lambdas = ( lambdas - learning_rates[2] * inner_iter**(-1/2) * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
-            demands = project_to_bugdet_set(demands, prices, current_state.budgets)
-            check_market(prices, demands, current_state.budgets, current_state.supplies, current_state.valuations)
-    # demands = project_to_bugdet_set(demands, prices, current_state.budgets)
+            # lambdas = ( lambdas - learning_rates[2] * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
+            lambdas = ( lambdas - learning_rates[2] * inner_iter**(-1/2) * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
+
     final_q = get_q_value(prices, demands, current_state, states, v, discount)
     return prices, demands, final_q
 
@@ -334,12 +336,12 @@ def get_q_value(prices, demands, current_state, states, v, discount):
     return obj_part + expected_value_part
 
 
-def check_market(prices, demands, budgets, supplies, valuations):
-    remain_budgets = budgets - prices @ demands.T
+def check_market(prices, demands, new_demands, budgets, supplies, valuations):
+    remain_budgets = budgets - prices @ new_demands.T
     for remain_budget in remain_budgets:
-        if remain_budget < -5:
+        if remain_budget < -1:
             print("spendings exceeds budgets by", 0 - remain_budget)
-    remain_supplies = supplies - np.sum(demands, axis = 0)
-    for remain_supply in remain_supplies:
-        if remain_supply < -5:
-            print("demands exceed supplies by", 0-remain_supply)
+    remain_supplies = supplies - np.sum(new_demands, axis = 0)
+    # for remain_supply in remain_supplies:
+    #     if remain_supply < -1:
+    #         print("demands exceed supplies by", 0-remain_supply)
