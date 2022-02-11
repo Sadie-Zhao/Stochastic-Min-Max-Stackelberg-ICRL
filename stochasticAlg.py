@@ -3,9 +3,45 @@ import numpy as np
 from state import State
 import fisherSolver as solver
 
-num_states = 100
+
 # Assigned probbaility of transition between states
+num_states = 5
 assigned_prob = np.random.rand(num_states, num_states)
+
+
+def evaluate_policies(discount, states, initial_distribution, max_iters, prices_policy, demands_policy, transition_method = "close_to_saved_budget"):
+    num_goods = states[0].num_goods
+    num_buyers = states[0].num_buyers
+    num_states = len(states)
+    random_cumulative_rewards = []
+    real_cumulative_rewards = []
+    # Initialize a pair of random policy
+    random_prices_policy = [np.zeros(num_goods) for index in range(num_states)]
+    random_demands_policy = [np.zeros((num_buyers, num_goods)) for index in range(num_states)]
+    for state in states:
+        prices = np.random.rand(num_goods) * 10
+        random_prices_policy[state] = prices
+        demands = np.random.rand(num_buyers, num_goods)
+        demands = project_to_bugdet_set(demands, prices, state.budgets)
+        random_demands_policy[state] = demands
+
+    random_state = np.random.choice(states, p = initial_distribution)
+    real_state = random_state
+    for iter in range(max_iters):
+        random_new_rewards = state.get_rewards(random_prices_policy[random_state], random_demands_policy[random_state])
+        random_cumulative_rewards.append(random_cumulative_rewards[-1] + random_new_rewards)
+        real_new_rewards = state.get_rewards(prices_policy[real_state], demands_policy[real_state])
+        real_cumulative_rewards.append(real_cumulative_rewards[-1] + real_new_rewards)
+
+        # Transition to new state
+        random_transition_vector = get_transition_prob_vector(state, random_prices_policy[random_state], random_demands_policy[random_state], states, transition_method)
+        random_state = np.random.choice(states, p = random_transition_vector)
+        real_transition_vector = get_transition_prob_vector(state, prices_policy[random_state], demands_policy[random_state], states, transition_method)
+        real_state = np.random.choice(states, p = real_transition_vector)
+
+    return random_cumulative_rewards, real_cumulative_rewards
+
+
 
 
 
@@ -57,19 +93,30 @@ def get_transition_prob(next_state_index, current_state, prices, demands, states
 
 
 
+# ############# Projection onto affine positive half-space, i.e., budget set ###############
+# def project_to_bugdet_set(X, p, b):
+#     X_prec = X
+#     while (True): 
+#         X -= ((X @ p - b).clip(min= 0)/(np.linalg.norm(p)**2).clip(min= 0.01) * np.tile(p, reps = (b.shape[0], 1)).T).T
+#         X = X.clip(min = 0)
+#         # if(np.linalg.norm(X - X_prec) <= np.sum(X_prec)*0.05):
+#         if(np.linalg.norm(X - X_prec) <=0.005):
+#             break
+#         # print(f"Current iterate {X}\nPrevious Iterate {X_prec}")
+#         X_prec = X
+#     return X
+
 ############# Projection onto affine positive half-space, i.e., budget set ###############
 def project_to_bugdet_set(X, p, b):
     X_prec = X
     while (True): 
         X -= ((X @ p - b).clip(min= 0)/(np.linalg.norm(p)**2).clip(min= 0.01) * np.tile(p, reps = (b.shape[0], 1)).T).T
         X = X.clip(min = 0)
-        # if(np.linalg.norm(X - X_prec) <= np.sum(X_prec)*0.05):
-        if(np.linalg.norm(X - X_prec) <=0.0005):
+        if(np.linalg.norm(X - X_prec) <= np.sum(X_prec)*0.05):
             break
         # print(f"Current iterate {X}\nPrevious Iterate {X_prec}")
         X_prec = X
     return X
-    
 
 
 # The easy version (transition prabability is indepedent of actions)
@@ -141,9 +188,11 @@ def value_iteration_independent(discount, states, initial_distribution, num_iter
 
 
 # The complicated version: close to saved budget
-def value_iteration_dependent(discount, states, initial_distribution, max_iters, epsilon, utility_type, max_iter_prices, max_iter_demands, learning_rates):
+def value_iteration_saving(discount, states, initial_distribution, max_iters, epsilon, utility_type, max_iter_prices, max_iter_demands, learning_rates):
     v_history = []
     exp_return_history = []
+    total_excess_spendings = []
+    total_excess_demands = []
     num_buyers = states[0].num_buyers
     num_goods = states[0].num_goods
 
@@ -164,7 +213,7 @@ def value_iteration_dependent(discount, states, initial_distribution, max_iters,
     # Initialization
     num_states = len(states)
     v = np.zeros(num_states) # An vector that maps each state to its value v(s)
-    prices_poliy = [np.zeros(num_goods) for index in range(num_states)]
+    prices_policy = [np.zeros(num_goods) for index in range(num_states)]
     demands_policy = [np.zeros((num_buyers, num_goods)) for index in range(num_states)]
 
     for i in range(max_iters):
@@ -177,10 +226,12 @@ def value_iteration_dependent(discount, states, initial_distribution, max_iters,
             #          = min max f(s,x,y) + discount * \sum_{s'} p(s'| s, x, y) * value(s')
 
             # Update policies and Tv
-            prices_poliy[index], demands_policy[index], Tv[index] = min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_iter_prices, max_iter_demands, learning_rates)
+            prices_policy[index], demands_policy[index], Tv[index] = min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_iter_prices, learning_rates, total_excess_spendings,
+            total_excess_demands)
             max_diff = max(max_diff, abs(v[index] - Tv[index]))
 
         # Update the values & expected returns
+        print(v)
         v_history.append(v)
         exp_return_history.append(get_exp_return(v, initial_distribution))
         v = (1 - discount) * Tv
@@ -190,7 +241,7 @@ def value_iteration_dependent(discount, states, initial_distribution, max_iters,
             exp_return_history.append(get_exp_return(Tv, initial_distribution))
             break
     
-    return v_history, exp_return_history
+    return v_history, exp_return_history, total_excess_demands, total_excess_spendings, prices_policy, demands_policy
 
 
 def p_gradient_of_log(states, current_state, s_i, prices, demands):
@@ -215,107 +266,73 @@ def x_i_gradient_of_log(row, states, current_state, s_i, prices, demands):
     
 
 # Compute min max Q = min max f(s,x,y) + discount * \sum_{s'} p(s'| s, x, y) * value(s')
-def min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_iter_prices,  max_iter_demands, learning_rates):
+def min_max_Q(num_buyers, num_goods, current_state, states, v, discount, max_iter_prices, learning_rates, total_excess_spendings,
+            total_excess_demands):
     prices = np.random.rand(num_goods) * 10
     demands = np.random.rand(num_buyers, num_goods)
-    lambdas = np.random.rand(num_buyers)
     num_states = len(states)
 
     for outer_iter in range(1, max_iter_prices):
         if (not outer_iter % 50):
             print(f"               ----- Min-Max Iteration {outer_iter}/{max_iter_prices} ----- ")
         ####### PRICES STEP ######
-        # Calculate gradient of E[discount * v(s')] part
-        sum = np.zeros(num_goods)
-        for s_i in states:
-            sum += v[s_i.index] * p_gradient_of_log(states, current_state, s_i, prices, demands)
-        p_discounted_exp_of_v = discount * 1/num_states * sum
-        # Calculate lagrangian part
-        p_langrangian_part = np.sum( [lambdas[i] * demands[i] for i in range(num_buyers)] )
-        # Update prices
-        # prices = (prices - learning_rates[0] * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
-        prices = (prices - learning_rates[0] * outer_iter**(-1/2) * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+        demand_row_sum = np.sum(demands, axis = 0)
+        excess_demands = demand_row_sum - current_state.supplies
 
+        # prices_step_size = learning_rates[0] * outer_iter**(-1/2) * excess_demands
+        prices_step_size = learning_rates[0] * excess_demands
 
-        for inner_iter in range(1, max_iter_demands):
-            ###### DEMANDS STEP ######
-            new_demands = np.zeros((num_buyers, num_goods))
-            # Calculate obj parts
-            constants_list = []
-            for v_i, b_i, x_i in zip(current_state.valuations, current_state.budgets, demands):
-                c_i = b_i / max(current_state.util_func(x_i, v_i), 0.001)
-                constants_list.append(c_i)
-            constants = (np.array(constants_list)).reshape(num_buyers, 1)
-            obj_parts = constants *  current_state.util_gradient_func(demands, current_state.valuations)
+        prices += prices_step_size * (prices > 0)
+        prices = np.clip(prices, a_min=0.001, a_max = None) # Make sure the price is positive
+        # step_size = learning_rates[0] * (iter**(-1/2)) * excess_demands
 
-            for row in range(num_buyers):
-                # Calculate gradient of E[discount * v(s')] part
-                sum = np.zeros(num_goods)
-                for s_i in states:
-                    sum += v[s_i.index] * x_i_gradient_of_log(row, states, current_state, s_i, prices, demands)
-                X_discounted_exp_of_v = discount * 1/num_states * sum
-                # Calculate langrangian part
-                X_langrangian_part = lambdas[row] * prices
-                # Update x_i
-                demands[row] = (demands[row] + learning_rates[1] * inner_iter**(-1/2) * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
-                # demands[row] = (demands[row] + learning_rates[1] * (obj_parts[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
-                new_demands = project_to_bugdet_set(demands, prices, current_state.budgets)
-                check_market(prices, demands, new_demands, current_state.budgets, current_state.supplies, current_state.valuations)
-                demands = new_demands
-            ###### LAMBDA STEP ######
-            # lambdas = ( lambdas - learning_rates[2] * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
-            lambdas = ( lambdas - learning_rates[2] * inner_iter**(-1/2) * (current_state.budgets - prices@ demands.T )).clip(min=0.001)
+        # # Calculate obj parts
+        # prices_obj = current_state.supplies
+        # # Calculate gradient of E[discount * v(s')] part
+        # sum = np.zeros(num_goods)
+        # for s_i in states:
+        #     sum += v[s_i.index] * alg.p_gradient_of_log(states, current_state, s_i, prices, demands)
+        # p_discounted_exp_of_v = discount * 1/num_states * sum
+        # # Calculate lagrangian part
+        # p_langrangian_part = np.sum( [lambdas[i] * demands[i] for i in range(num_buyers)] )
+        # # Update prices
+        # # prices = (prices - learning_rates[0] * (p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+        # prices = (prices - learning_rates[0] * outer_iter**(-1/2) * (prices_obj + p_discounted_exp_of_v - p_langrangian_part)).clip(min=0.001)
+
+        ###### DEMANDS STEP ######
+        new_demands = np.zeros((num_buyers, num_goods))
+        # Calculate obj parts
+        constants_list = []
+        for v_i, b_i, x_i in zip(current_state.valuations, current_state.budgets, demands):
+            c_i = b_i / max(current_state.util_func(x_i, v_i), 0.001)
+            constants_list.append(c_i)
+        constants = (np.array(constants_list)).reshape(num_buyers, 1)
+        demands_obj = constants *  current_state.util_gradient_func(demands, current_state.valuations)
+
+        for row in range(num_buyers):
+            # Calculate gradient of E[discount * v(s')] part
+            sum = np.zeros(num_goods)
+            for s_i in states:
+                sum += v[s_i.index] * x_i_gradient_of_log(row, states, current_state, s_i, prices, demands)
+            X_discounted_exp_of_v = discount * 1/num_states * sum
+            # Calculate langrangian part
+            X_langrangian_part = prices
+            # Update x_i
+            # new_demands[row] = (demands[row] + learning_rates[1] * inner_iter**(-1/2) * (demands_obj[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
+            new_demands[row] = (demands[row] + learning_rates[1] * (demands_obj[row] + X_discounted_exp_of_v - X_langrangian_part)).clip(min=0.001)
+
+            new_demands = project_to_bugdet_set(demands, prices, current_state.budgets)
+            check_market(prices, new_demands, current_state.budgets, current_state.supplies, total_excess_spendings, total_excess_demands)
+            demands = new_demands
 
     final_q = get_q_value(prices, demands, current_state, states, v, discount)
+    # print(prices, demands, final_q)
     return prices, demands, final_q
 
 
 
 
-    
 
-
-
-
-
-def simple_OFM(num_goods, num_buyers, valuations, budgets, distribution, num_iters, utility_type):
-
-    # Initialze utility function
-    if utility_type == "linear":
-        util_func = lib.get_linear_utility
-        # util_gradient_func = lib.get_linear_util_gradient
-        obj_func = lib.get_linear_obj
-    elif utility_type == "leontief":
-        util_func = lib.get_leontief_utility
-        # util_gradient_func = lib.get_leontief_util_gradient
-        obj_func = lib.get_leontief_obj
-    elif utility_type == "cd":
-        util_func = lib.get_cd_utility
-        # util_gradient_func = lib.get_cd_util_gradient
-        obj_func = lib.get_cd_obj
-
-    # Solve the market
-    market = solver.FisherMarket(valuations, budgets, distribution)
-    equil_demands, equil_prices = market.solveMarket(utility_type, printResults=False)
-    equil_demands = np.array(equil_demands)
-    
-    sum_utility = np.zeros(num_buyers)
-    average_utility = np.zeros(num_buyers)
-    average_utility_history = []
-    obj_history = []
-
-
-    for t in range(1, num_iters):
-        item = np.random.choice(range(num_goods), p = distribution)
-        average_utility = np.zeros(num_buyers)
-        # Keep track of the time-averaged utility
-        for i, (v_i, x_i) in enumerate(zip(valuations, equil_demands)):
-            utility = util_func(x_i / distribution[item], v_i)
-            sum_utility[i] += utility
-            average_utility[i] = sum_utility[i] / t
-        average_utility_history.append(average_utility)
-
-    return average_utility_history
 
 
 
@@ -336,12 +353,13 @@ def get_q_value(prices, demands, current_state, states, v, discount):
     return obj_part + expected_value_part
 
 
-def check_market(prices, demands, new_demands, budgets, supplies, valuations):
-    remain_budgets = budgets - prices @ new_demands.T
-    for remain_budget in remain_budgets:
-        if remain_budget < -1:
-            print("spendings exceeds budgets by", 0 - remain_budget)
-    remain_supplies = supplies - np.sum(new_demands, axis = 0)
+def check_market(prices, demands, budgets, supplies, total_excess_spendings, total_excess_demands):
+    excess_spendings =  prices @ demands.T - budgets
+    total_excess_spendings.append(np.sum(excess_spendings))
+    
+    excess_demands = np.sum(demands, axis =0) - supplies
+    total_excess_demands.append(np.sum(excess_demands))
+        
     # for remain_supply in remain_supplies:
     #     if remain_supply < -1:
     #         print("demands exceed supplies by", 0-remain_supply)
